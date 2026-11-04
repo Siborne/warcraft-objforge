@@ -1,0 +1,22 @@
+# Local Warcraft map files and W3U test fixtures
+/*.w3u
+/*.w3t
+/*.w3b
+/*.w3d
+/*.w3a
+/*.w3h
+/*.w3q
+/*.w3x
+/*.w3m
+/*.csv
+/*.json
+/*.xlsx
+
+# Bundled editor data and previous parser experiments
+/zhCN-1.27.0/
+/war3-object-editor/
+
+# Python runtime files and local settings
+__pycache__/
+/.codex/
+/.reasonix/
