@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Siborne
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Windows Tkinter panel for Warcraft object-data table workflows."""
 
 from __future__ import annotations

@@ -4,6 +4,10 @@ Warcraft III 物编数据与 Excel/CSV 双向转换工具。
 
 ObjForge exports Warcraft III object data to editable, styled spreadsheets and rebuilds binary object files after editing.
 
+## 教程视频
+
+[物编工坊使用教程（Bilibili）](https://www.bilibili.com/video/BV1FqxR6oEk1/)
+
 ## Features
 
 - Supports `.w3u`, `.w3a`, `.w3t` and `.w3q`.
@@ -63,3 +67,11 @@ Use `.w3t` for items and `.w3q` for upgrades with the same `mod-export` / `apply
 - Warcraft III game data and map files are intentionally excluded from this repository.
 
 See [W3U工具使用说明.md](W3U工具使用说明.md) for the complete Chinese guide.
+
+## License
+
+Copyright (C) 2026 Siborne.
+
+This project is licensed under the **GNU General Public License v3.0 only** (`GPL-3.0-only`).
+
+Commercial use is allowed. If you distribute the program or a modified version, you must provide the corresponding source code under the same license and retain the copyright and license notices. See [LICENSE](LICENSE).

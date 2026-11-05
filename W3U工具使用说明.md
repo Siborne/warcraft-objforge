@@ -292,3 +292,9 @@ int32 end
 ```powershell
 python .\w3u_tool.py export .\war3map.w3a
 ```
+
+## 许可证
+
+Copyright (C) 2026 Siborne。
+
+本项目采用 **GNU General Public License v3.0 only（GPL-3.0-only）**。允许商业使用；分发程序或修改版本时必须提供对应源代码，并保留版权和许可证声明。完整条款见 `LICENSE`。

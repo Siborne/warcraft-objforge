@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Siborne
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Inspect, export, edit and rebuild Warcraft III object-data files.
 
 The tool uses only the Python standard library and is intended for .w3u files.
