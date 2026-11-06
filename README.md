@@ -14,6 +14,7 @@ ObjForge exports Warcraft III object data to editable, styled spreadsheets and r
 - Merges inherited SLK/TXT data with object-file overrides.
 - Exports complete unit, ability, item and upgrade properties.
 - Preserves ability/upgrade levels and ability data channels.
+- Create and delete custom objects directly from the spreadsheet using the `operation` column.
 - Styled `.xlsx` output with English and Chinese header rows, frozen panes, filters and colour-coded sections.
 - `.xlsx` and `.csv` can both be imported back into a new object-data file.
 - Lossless round trip when the exported table is not modified.
@@ -46,6 +47,18 @@ On first launch:
 3. Choose an `.xlsx` or `.csv` output path.
 4. Export, edit the table, then rebuild a new object-data file.
 5. Import the generated file with the corresponding World Editor command.
+
+## Create a custom object
+
+1. Export a complete table.
+2. Copy one complete object row.
+3. Set `operation` to `new`.
+4. Clear `object_index`.
+5. Set `object_id` to a new unique four-character ID.
+6. Set `base_id` to the original object being inherited.
+7. Edit any desired properties and rebuild the object-data file.
+
+Set `operation` to `delete` for an existing object to remove it. Every existing object must keep at least one row or be explicitly marked `delete`.
 
 ## Command line
 

@@ -173,6 +173,19 @@ class W3UGui:
             anchor="w",
             justify="left",
         ).pack(fill="x")
+        tk.Label(
+            import_hint,
+            text=(
+                "新增对象：复制整行，operation 改 new，object_index 留空，"
+                "填写新的 object_id 和 base_id。删除对象：operation 改 delete。"
+            ),
+            bg="#dce9df",
+            fg="#3f6653",
+            font=("Microsoft YaHei UI", 9),
+            anchor="w",
+            justify="left",
+            wraplength=880,
+        ).pack(fill="x", pady=(4, 0))
 
         log_head = tk.Frame(outer, bg="#e9eee8")
         log_head.pack(fill="x", pady=(1, 5))
@@ -429,8 +442,7 @@ class W3UGui:
             columns, rows = core.full_export_rows(document, metadata, bases, localized)
             core.write_table(output, columns, rows, metadata, localized)
             row_count = len(rows)
-            identifier_columns = 5 if document.uses_optional_ints else 4
-            property_count = len(columns) - identifier_columns
+            property_count = len(columns) - core.identifier_column_count(columns)
             detail = f"物体 {row_count} 个，完整属性列 {property_count} 个。"
         else:
             metadata, localized = core.load_format_metadata(
@@ -442,7 +454,7 @@ class W3UGui:
             )
             core.write_table(output, columns, rows, metadata, localized)
             row_count = len(rows)
-            property_count = len(columns) - 4
+            property_count = len(columns) - core.identifier_column_count(columns)
             detail = (
                 f"物体 {sum(len(table['objects']) for table in document.tables)} 个，"
                 f"等级行 {row_count} 行，完整属性列 {property_count} 个。"

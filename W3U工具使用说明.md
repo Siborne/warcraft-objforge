@@ -40,6 +40,19 @@ cd S:\game\war3\map\the_last_forest\ds
 
 在面板指定表格输出位置并点“导出表格”。建议选择 `.xlsx` 获得美化格式；W3U 导出包含基础值的完整单位属性，W3T 导出完整物品属性，W3A/W3Q 按对象和等级导出完整属性。打开文件后修改数据行中的属性值；保留前两行表头和 `table`、`object_index`、`object_id`、`base_id`、`level` 等识别列。不要排序、改写或删除识别列。XLSX 和 CSV 都可以直接回写，CSV 兼容 UTF-8 及 WPS 常用的 GBK/ANSI 编码。
 
+### 新增和删除自定义对象
+
+新增单位、技能、物品或科技时：
+
+1. 复制一整行对象数据。
+2. 把 `operation` 改为 `new`；XLSX 中该列提供 `keep/new/delete` 下拉选项。
+3. 清空 `object_index`。
+4. 把 `object_id` 改成新的 4 字符编码。
+5. 把 `base_id` 保留为要继承的原始对象编码。
+6. 修改需要变化的属性后回写。
+
+删除对象时，把该对象的 `operation` 改为 `delete`。已有对象必须至少保留一行，或者明确标记为 `delete`，否则工具会拒绝回写，避免误删。新对象 ID 不能与基础对象或其他自定义对象重复。
+
 W3A/W3T/W3Q 的命令行完整导出示例：
 
 ```powershell

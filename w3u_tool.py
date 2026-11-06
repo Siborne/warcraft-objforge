@@ -63,6 +63,16 @@ TYPE_NAMES = {
     21: "attackBits",
 }
 
+TABLE_IDENTIFIERS = {
+    "table",
+    "operation",
+    "object_index",
+    "object_id",
+    "base_id",
+    "level",
+    "modification_count",
+}
+
 
 class W3UError(Exception):
     pass
@@ -525,6 +535,10 @@ def _header_parts(header: str) -> Tuple[str, str]:
     return raw, label
 
 
+def identifier_column_count(columns: List[str]) -> int:
+    return sum(1 for header in columns if _header_parts(header)[0] in TABLE_IDENTIFIERS)
+
+
 def _column_letter(index: int) -> str:
     result = ""
     while index:
@@ -572,10 +586,12 @@ def write_styled_xlsx(
 ) -> None:
     identifiers = {
         "table": ("Table", "表类型"),
+        "operation": ("Operation", "操作"),
         "object_index": ("Object Index", "对象索引"),
         "object_id": ("Object ID", "对象编码"),
         "base_id": ("Base ID", "原始编码"),
         "level": ("Level", "等级"),
+        "modification_count": ("Modification Count", "修改项数量"),
     }
     meta_by_id = {meta.get("ID", ""): meta for meta in metadata if meta.get("ID")}
     english_headers: List[str] = []
@@ -620,11 +636,14 @@ def write_styled_xlsx(
         )
         + "</row>"
     )
+    identifier_count = sum(
+        1 for header in columns if _header_parts(header)[0] in identifiers
+    )
     for row_index, row in enumerate(rows, 3):
         table_value = _xlsx_text(row.get(columns[0], ""))
         cells: List[str] = []
         for col_index, header in enumerate(columns, 1):
-            if col_index <= (5 if "level" in identifiers and rows and "level" in rows[0] else 4):
+            if col_index <= identifier_count:
                 style = 3
             elif table_value == "original":
                 style = 4
@@ -639,8 +658,26 @@ def write_styled_xlsx(
             )
         sheet_rows.append(f'<row r="{row_index}">' + "".join(cells) + "</row>")
 
-    freeze_columns = 5 if rows and "level" in rows[0] else 4
+    freeze_columns = identifier_count
     freeze_ref = f"{_column_letter(freeze_columns + 1)}3"
+    operation_column = next(
+        (
+            index
+            for index, header in enumerate(columns, 1)
+            if _header_parts(header)[0] == "operation"
+        ),
+        None,
+    )
+    validation_xml = ""
+    if operation_column is not None:
+        operation_letter = _column_letter(operation_column)
+        validation_xml = (
+            '<dataValidations count="1">'
+            f'<dataValidation type="list" allowBlank="1" showInputMessage="1" '
+            f'showErrorMessage="1" sqref="{operation_letter}3:{operation_letter}{max_row}">'
+            "<formula1>keep,new,delete</formula1>"
+            "</dataValidation></dataValidations>"
+        )
     sheet_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
@@ -658,6 +695,7 @@ def write_styled_xlsx(
         + "".join(sheet_rows)
         + "</sheetData>"
         + f'<autoFilter ref="A2:{last_ref}"/>'
+        + validation_xml
         + "</worksheet>"
     )
 
@@ -1575,7 +1613,7 @@ def format_full_export_rows(
         header_key = field_header_key(field_id)
         column_by_id[field_id] = f"{header_key} [{label}]"
 
-    columns = ["table", "object_index", "object_id", "base_id"]
+    columns = ["table", "operation", "object_index", "object_id", "base_id"]
     if document.uses_optional_ints:
         columns.append("level")
     columns.extend(column_by_id.values())
@@ -1605,6 +1643,7 @@ def format_full_export_rows(
             for level in levels:
                 row: Dict[str, Any] = {
                     "table": table["name"],
+                    "operation": "keep",
                     "object_index": obj["index"],
                     "object_id": object_id,
                     "base_id": obj["original_id"],
@@ -1665,6 +1704,8 @@ def full_export_rows(
                 )
             row: Dict[str, Any] = {
                 "table": table["name"],
+                "operation": "keep",
+                "object_index": obj["index"],
                 "object_id": object_id,
                 "base_id": obj["original_id"],
                 "modification_count": obj["modification_count"],
@@ -1677,7 +1718,14 @@ def full_export_rows(
                     row[column] = mod["value"]
             rows.append(row)
 
-    columns = ["table", "object_id", "base_id", "modification_count"]
+    columns = [
+        "table",
+        "operation",
+        "object_index",
+        "object_id",
+        "base_id",
+        "modification_count",
+    ]
     columns.extend(column_by_id.values())
     return columns, rows
 
@@ -1693,7 +1741,10 @@ def command_full_export(args: argparse.Namespace) -> int:
     output = Path(args.output)
     write_table(output, columns, rows, metadata, localized)
     print(f"full editor view: {output}")
-    print(f"objects: {len(rows)}; property columns: {len(columns) - 4}")
+    print(
+        f"objects: {len(rows)}; "
+        f"property columns: {len(columns) - identifier_column_count(columns)}"
+    )
     print(f"base rows loaded: {len(bases)}; metadata fields: {len(metadata)}")
     return 0
 
@@ -1710,10 +1761,10 @@ def command_export_mods(args: argparse.Namespace) -> int:
     output = Path(args.output)
     write_table(output, columns, rows, metadata, localized)
     print(f"field CSV: {output}")
-    identifier_columns = 5 if document.uses_optional_ints else 4
     print(
         f"objects: {sum(len(t['objects']) for t in document.tables)}; "
-        f"rows: {len(rows)}; property columns: {len(columns) - identifier_columns}"
+        f"rows: {len(rows)}; "
+        f"property columns: {len(columns) - identifier_column_count(columns)}"
     )
     print("Format-level rows keep per-level skill/upgrade defaults and overrides.")
     return 0
@@ -1775,6 +1826,81 @@ def normalize_editor_value(value: Any, type_id: int) -> Any:
     return text
 
 
+def row_operation(row: Dict[str, str]) -> str:
+    value = (row.get("operation", "") or "keep").strip().casefold()
+    if value in ("", "keep", "保留", "修改"):
+        return "keep"
+    if value in ("new", "add", "新增", "新建"):
+        return "new"
+    if value in ("delete", "remove", "删除"):
+        return "delete"
+    raise W3UError(f"unsupported operation: {value!r}")
+
+
+def base_values_for(
+    bases: Dict[str, Dict[str, str]], base_id: str
+) -> Dict[str, str]:
+    values = bases.get(base_id)
+    if values is not None:
+        return values
+    return next(
+        (
+            candidate
+            for candidate_id, candidate in bases.items()
+            if candidate_id.casefold() == base_id.casefold()
+        ),
+        {},
+    )
+
+
+def new_custom_object(
+    base_id: str, object_id: str, uses_optional_ints: bool, index: int
+) -> Dict[str, Any]:
+    return {
+        "index": index,
+        "original_id": base_id,
+        "original_id_hex": text_to_rawcode(base_id, allow_zero=False).hex(),
+        "new_id": object_id,
+        "new_id_hex": text_to_rawcode(object_id, allow_zero=False).hex(),
+        "modification_count": 0,
+        "modifications": [],
+    }
+
+
+def validate_new_custom_id(document: ObjectData, object_id: str) -> None:
+    text_to_rawcode(object_id, allow_zero=False)
+    used_ids = set()
+    for table in document.tables:
+        for obj in table["objects"]:
+            if table["name"] == "custom":
+                if obj.get("new_id"):
+                    used_ids.add(obj["new_id"])
+            elif obj.get("original_id"):
+                used_ids.add(obj["original_id"])
+    if object_id in used_ids:
+        raise W3UError(f"new object ID already exists: {object_id!r}")
+
+
+def validate_base_id(document: ObjectData, base_id: str) -> None:
+    text_to_rawcode(base_id, allow_zero=False)
+    original_ids = {
+        obj.get("original_id")
+        for table in document.tables
+        if table["name"] == "original"
+        for obj in table["objects"]
+    }
+    if base_id not in original_ids:
+        raise W3UError(f"base object ID does not exist in original table: {base_id!r}")
+
+
+def reindex_tables(document: ObjectData) -> None:
+    for table in document.tables:
+        table["objects"] = list(table.get("objects", []))
+        table["count"] = len(table["objects"])
+        for index, obj in enumerate(table["objects"]):
+            obj["index"] = index
+
+
 def apply_full_csv(
     document: ObjectData,
     csv_path: Path,
@@ -1794,45 +1920,76 @@ def apply_full_csv(
         if meta.get("ID") in columns_by_id
     }
 
-    objects: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    existing_objects: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for table in document.tables:
         for obj in table["objects"]:
             object_id = (
                 obj["new_id"] if table["name"] == "custom" else obj["original_id"]
             ) or obj["original_id"]
-            objects[(table["name"], object_id)] = obj
+            existing_objects[(table["name"], object_id)] = obj
 
-    updated = 0
-    seen = set()
+    rows_by_object: Dict[Tuple[str, str], Tuple[str, Dict[str, str]]] = {}
     for row in csv_rows:
-        table_name = row.get("table", "")
-        object_id = row.get("object_id", "")
+        table_name = row.get("table", "").strip()
+        object_id = row.get("object_id", "").strip()
+        if table_name not in ("original", "custom"):
+            raise W3UError(f"invalid table name: {table_name!r}")
+        if not object_id:
+            raise W3UError("new CSV object is missing object_id")
         key = (table_name, object_id)
-        obj = objects.get(key)
-        if obj is None:
-            raise W3UError(f"CSV object not found in source W3U: {table_name}/{object_id}")
-        if key in seen:
+        if key in rows_by_object:
             raise W3UError(f"duplicate object row in CSV: {table_name}/{object_id}")
-        seen.add(key)
+        rows_by_object[key] = (row_operation(row), row)
 
-        base_id = row.get("base_id") or obj["original_id"]
-        base_values = bases.get(base_id)
-        if base_values is None:
-            base_values = next(
-                (
-                    values
-                    for candidate_id, values in bases.items()
-                    if candidate_id.casefold() == base_id.casefold()
-                ),
-                {},
+    missing = set(existing_objects) - set(rows_by_object)
+    if missing:
+        table_name, object_id = sorted(missing)[0]
+        raise W3UError(
+            f"CSV is missing object {table_name}/{object_id}; "
+            "use operation=delete to remove it explicitly"
+        )
+
+    new_objects: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    deleted: set[Tuple[str, str]] = set()
+    for key, (operation, row) in rows_by_object.items():
+        if operation == "delete":
+            if key not in existing_objects:
+                raise W3UError(f"cannot delete unknown object: {key[0]}/{key[1]}")
+            deleted.add(key)
+        elif operation == "new":
+            if key[0] != "custom":
+                raise W3UError("new objects can only be added to the custom table")
+            object_id = key[1]
+            base_id = row.get("base_id", "").strip()
+            validate_new_custom_id(document, object_id)
+            validate_base_id(document, base_id)
+            new_objects[key] = new_custom_object(
+                base_id, object_id, document.uses_optional_ints, 0
             )
-        mods_by_field = {mod["field_id"]: mod for mod in obj["modifications"]}
+        elif key not in existing_objects:
+            raise W3UError(
+                f"CSV object not found in source file: {key[0]}/{key[1]}; "
+                "set operation=new when adding an object"
+            )
 
+    updated = len(deleted)
+    for key, (operation, row) in rows_by_object.items():
+        if operation in ("delete", "new"):
+            if operation == "new":
+                obj = new_objects[key]
+                base_id = row.get("base_id", "").strip()
+            else:
+                continue
+        else:
+            obj = existing_objects[key]
+            base_id = obj["original_id"]
+        base_values = base_values_for(bases, base_id)
+        mods_by_field = {mod["field_id"]: mod for mod in obj["modifications"]}
         for field_id, meta in metadata_by_id.items():
-            existing = mods_by_field.get(field_id)
+            existing_mod = mods_by_field.get(field_id)
             value_type = metadata_value_type(
                 meta.get("type", ""),
-                existing.get("type") if existing else None,
+                existing_mod.get("type") if existing_mod else None,
             )
             desired = normalize_editor_value(
                 row.get(columns_by_id[field_id], ""), value_type
@@ -1841,16 +1998,16 @@ def apply_full_csv(
                 metadata_base_value(meta, base_values), value_type
             )
             current = (
-                normalize_editor_value(existing["value"], existing["type"])
-                if existing is not None
+                normalize_editor_value(existing_mod["value"], existing_mod["type"])
+                if existing_mod is not None
                 else default
             )
 
             if desired == current:
                 continue
             if desired == default:
-                if existing is not None:
-                    obj["modifications"].remove(existing)
+                if existing_mod is not None:
+                    obj["modifications"].remove(existing_mod)
                     mods_by_field.pop(field_id, None)
                     updated += 1
                 continue
@@ -1861,14 +2018,14 @@ def apply_full_csv(
                     f"{field_id!r} for object {object_id!r}"
                 )
 
-            if existing is None:
+            if existing_mod is None:
                 terminator_id = obj["new_id"] or obj["original_id"]
                 terminator = int.from_bytes(
                     text_to_rawcode(terminator_id, allow_zero=False),
                     "little",
                     signed=True,
                 )
-                existing = {
+                existing_mod = {
                     "field_id": field_id,
                     "field_hex": text_to_rawcode(field_id, allow_zero=False).hex(),
                     "type": value_type,
@@ -1882,18 +2039,36 @@ def apply_full_csv(
                     "end": terminator,
                     "end_hex": f"{terminator & 0xFFFFFFFF:08x}",
                 }
-                obj["modifications"].append(existing)
-                mods_by_field[field_id] = existing
+                obj["modifications"].append(existing_mod)
+                mods_by_field[field_id] = existing_mod
                 updated += 1
-            elif normalize_editor_value(existing["value"], existing["type"]) != desired:
-                existing["value"] = desired
-                existing["type"] = value_type
-                existing["type_name"] = TYPE_NAMES.get(value_type, "unknown")
-                existing["original_value"] = desired
-                existing["raw_hex"] = ""
+            elif normalize_editor_value(existing_mod["value"], existing_mod["type"]) != desired:
+                existing_mod["value"] = desired
+                existing_mod["type"] = value_type
+                existing_mod["type_name"] = TYPE_NAMES.get(value_type, "unknown")
+                existing_mod["original_value"] = desired
+                existing_mod["raw_hex"] = ""
                 updated += 1
 
         obj["modification_count"] = len(obj["modifications"])
+
+    for table in document.tables:
+        table_name = table["name"]
+        kept = [
+            obj
+            for obj in table["objects"]
+            if (table_name, (
+                obj["new_id"] if table_name == "custom" else obj["original_id"]
+            ) or obj["original_id"]) not in deleted
+        ]
+        if table_name == "custom":
+            kept.extend(
+                obj
+                for (new_table, _), obj in new_objects.items()
+                if new_table == "custom"
+            )
+        table["objects"] = kept
+    reindex_tables(document)
     return updated
 
 
@@ -1904,7 +2079,7 @@ def _meta_int(meta: Dict[str, str], key: str, default: int = 0) -> int:
         return default
 
 
-def apply_format_full_csv(
+def _apply_format_full_csv_legacy(
     document: ObjectData,
     csv_path: Path,
     metadata: List[Dict[str, str]],
@@ -2059,6 +2234,240 @@ def apply_format_full_csv(
                     apply_value(field_id, meta, 0, row)
 
         obj["modification_count"] = len(modifications)
+    return changed
+
+
+def apply_format_full_csv(
+    document: ObjectData,
+    csv_path: Path,
+    metadata: List[Dict[str, str]],
+    bases: Dict[str, Dict[str, str]],
+) -> int:
+    headers, csv_rows = read_csv_dicts(csv_path)
+    columns_by_id: Dict[str, str] = {}
+    for header in headers:
+        raw_header = _header_parts(header)[0]
+        if raw_header:
+            columns_by_id.setdefault(raw_header, header)
+
+    metadata_by_id = {
+        meta["ID"]: meta
+        for meta in metadata
+        if meta.get("ID") and meta["ID"] in columns_by_id
+    }
+    existing_objects: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for table in document.tables:
+        for obj in table["objects"]:
+            object_id = (
+                obj["new_id"] if table["name"] == "custom" else obj["original_id"]
+            ) or obj["original_id"]
+            existing_objects[(table["name"], object_id)] = obj
+
+    grouped: Dict[
+        Tuple[str, str], Tuple[str, Dict[int, Dict[str, str]]]
+    ] = {}
+    for row in csv_rows:
+        table_name = row.get("table", "").strip()
+        object_id = row.get("object_id", "").strip()
+        if table_name not in ("original", "custom"):
+            raise W3UError(f"invalid table name: {table_name!r}")
+        if not object_id:
+            raise W3UError("new CSV object is missing object_id")
+        key = (table_name, object_id)
+        operation = row_operation(row)
+        if key in grouped and grouped[key][0] != operation:
+            raise W3UError(f"mixed operations for object {table_name}/{object_id}")
+        if operation == "delete":
+            grouped.setdefault(key, (operation, {}))
+            continue
+        if document.uses_optional_ints:
+            try:
+                level = int(row.get("level", "") or 1)
+            except ValueError as exc:
+                raise W3UError(
+                    f"invalid level for {table_name}/{object_id}: "
+                    f"{row.get('level', '')!r}"
+                ) from exc
+        else:
+            level = 1
+        if key in grouped and level in grouped[key][1]:
+            raise W3UError(
+                f"duplicate object level in CSV: {table_name}/{object_id}/{level}"
+            )
+        grouped.setdefault(key, (operation, {}))[1][level] = row
+
+    missing = set(existing_objects) - set(grouped)
+    if missing:
+        table_name, object_id = sorted(missing)[0]
+        raise W3UError(
+            f"CSV is missing object {table_name}/{object_id}; "
+            "use operation=delete to remove it explicitly"
+        )
+
+    new_objects: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    deleted: set[Tuple[str, str]] = set()
+    for key, (operation, rows_by_level) in grouped.items():
+        if operation == "delete":
+            if key not in existing_objects:
+                raise W3UError(f"cannot delete unknown object: {key[0]}/{key[1]}")
+            deleted.add(key)
+            continue
+        if operation == "new":
+            if key[0] != "custom":
+                raise W3UError("new objects can only be added to the custom table")
+            if document.uses_optional_ints and 1 not in rows_by_level:
+                raise W3UError(f"new object {key[1]} must include level 1")
+            base_ids = {
+                row.get("base_id", "").strip() for row in rows_by_level.values()
+            }
+            if len(base_ids) != 1:
+                raise W3UError(f"new object {key[1]} has inconsistent base_id values")
+            base_id = next(iter(base_ids))
+            validate_new_custom_id(document, key[1])
+            validate_base_id(document, base_id)
+            new_objects[key] = new_custom_object(
+                base_id, key[1], document.uses_optional_ints, 0
+            )
+        elif key not in existing_objects:
+            raise W3UError(
+                f"CSV object not found in source file: {key[0]}/{key[1]}; "
+                "set operation=new when adding an object"
+            )
+
+    changed = len(deleted) + len(new_objects)
+    for key, (operation, rows_by_level) in grouped.items():
+        if operation == "delete":
+            continue
+        if operation == "new":
+            obj = new_objects[key]
+            base_id = obj["original_id"]
+        else:
+            obj = existing_objects[key]
+            base_id = obj["original_id"]
+            for row in rows_by_level.values():
+                if row.get("base_id", "").strip() != base_id:
+                    raise W3UError(
+                        f"base_id cannot be changed for existing object {key[1]}"
+                    )
+        base_values = base_values_for(bases, base_id)
+        modifications = obj["modifications"]
+        mods_by_key: Dict[Tuple[str, int, int], Dict[str, Any]] = {}
+        for mod in modifications:
+            mods_by_key[
+                (
+                    mod["field_id"],
+                    int(mod.get("level") or 0),
+                    int(mod.get("data_pointer") or 0),
+                )
+            ] = mod
+
+        def apply_value(
+            field_id: str,
+            meta: Dict[str, str],
+            level: int,
+            row: Dict[str, str],
+        ) -> None:
+            nonlocal changed
+            pointer = _meta_int(meta, "data", 0) if document.uses_optional_ints else 0
+            mod_level = level if document.uses_optional_ints else 0
+            key3 = (field_id, mod_level, pointer)
+            existing_mod = mods_by_key.get(key3)
+            value_type = metadata_value_type(
+                meta.get("type", ""),
+                existing_mod.get("type") if existing_mod else None,
+            )
+            desired = normalize_editor_value(
+                row.get(columns_by_id[field_id], ""), value_type
+            )
+            default = normalize_editor_value(
+                format_base_value(meta, base_values, level), value_type
+            )
+            current = (
+                normalize_editor_value(existing_mod["value"], existing_mod["type"])
+                if existing_mod is not None
+                else default
+            )
+            if desired == current:
+                return
+            if desired == default:
+                if existing_mod is not None:
+                    modifications.remove(existing_mod)
+                    mods_by_key.pop(key3, None)
+                    changed += 1
+                return
+            if value_type in (0, 1, 2) and not isinstance(desired, (int, float)):
+                raise W3UError(
+                    f"non-numeric value {desired!r} in field {field_id!r} "
+                    f"for object {key[1]} level {level}"
+                )
+            if existing_mod is None:
+                object_id = obj["new_id"] or obj["original_id"]
+                end_value = int.from_bytes(
+                    text_to_rawcode(object_id, allow_zero=False),
+                    "little",
+                    signed=True,
+                )
+                existing_mod = {
+                    "field_id": field_id,
+                    "field_hex": text_to_rawcode(field_id, allow_zero=False).hex(),
+                    "type": value_type,
+                    "type_name": TYPE_NAMES.get(value_type, "unknown"),
+                    "level": mod_level if document.uses_optional_ints else None,
+                    "data_pointer": pointer if document.uses_optional_ints else None,
+                    "value": desired,
+                    "original_value": desired,
+                    "encoding": "utf-8",
+                    "raw_hex": "",
+                    "end": end_value,
+                    "end_hex": f"{end_value & 0xFFFFFFFF:08x}",
+                }
+                modifications.append(existing_mod)
+                mods_by_key[key3] = existing_mod
+            else:
+                existing_mod["value"] = desired
+                existing_mod["type"] = value_type
+                existing_mod["type_name"] = TYPE_NAMES.get(value_type, "unknown")
+                existing_mod["original_value"] = desired
+                existing_mod["raw_hex"] = ""
+            changed += 1
+
+        for field_id, meta in metadata_by_id.items():
+            repeat = _meta_int(meta, "repeat", 0)
+            if document.uses_optional_ints and repeat > 0:
+                for level, row in rows_by_level.items():
+                    if level > 0:
+                        apply_value(field_id, meta, level, row)
+            else:
+                row = rows_by_level.get(1)
+                if row is not None:
+                    apply_value(field_id, meta, 0, row)
+
+        obj["modification_count"] = len(modifications)
+
+    for table in document.tables:
+        table_name = table["name"]
+        kept = [
+            obj
+            for obj in table["objects"]
+            if (
+                table_name,
+                (
+                    obj["new_id"]
+                    if table_name == "custom"
+                    else obj["original_id"]
+                )
+                or obj["original_id"],
+            )
+            not in deleted
+        ]
+        if table_name == "custom":
+            kept.extend(
+                obj
+                for (new_table, _object_id), obj in new_objects.items()
+                if new_table == "custom"
+            )
+        table["objects"] = kept
+    reindex_tables(document)
     return changed
 
 
